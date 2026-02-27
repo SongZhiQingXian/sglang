@@ -11,6 +11,24 @@
 # The pip package already includes cubins for common architectures (sm_80, sm_90).
 set -uxo pipefail
 
+# Early exit: the pip package already includes cubins for sm_80 and sm_90.
+# Only sm_100+ (Blackwell) needs extra cubins downloaded. Skip the expensive
+# Python status check entirely if no such GPU is present.
+if COMPUTE_CAPS=$(timeout 10 nvidia-smi --query-gpu=compute_cap --format=csv,noheader 2>/dev/null); then
+    NEEDS_EXTRA_CUBINS=false
+    while IFS= read -r cap; do
+        major="${cap%%.*}"
+        if [ "$major" -ge 10 ] 2>/dev/null; then
+            NEEDS_EXTRA_CUBINS=true
+            break
+        fi
+    done <<< "$COMPUTE_CAPS"
+    if [ "$NEEDS_EXTRA_CUBINS" = false ]; then
+        echo "All GPUs are sm_9x or older (compute caps: $(echo $COMPUTE_CAPS | tr '\n' ' ')), pip cubins sufficient — skipping download"
+        exit 0
+    fi
+fi
+
 # Use timeout to prevent hangs when GPUs are in error state (the flashinfer
 # import can trigger CUDA init which blocks on bad GPUs).
 CUBIN_STATUS=$(timeout 60 python3 -c "
