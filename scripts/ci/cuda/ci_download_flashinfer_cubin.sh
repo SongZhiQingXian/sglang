@@ -7,7 +7,11 @@
 # missing files.
 set -euxo pipefail
 
-CUBIN_STATUS=$(FLASHINFER_LOGGING_LEVEL=warning python3 -c "
+# Use timeout to prevent hangs when GPUs are in error state (the flashinfer
+# import can trigger CUDA init which blocks on bad GPUs).
+CUBIN_STATUS=$(timeout 60 python3 -c "
+import os
+os.environ.setdefault('CUDA_VISIBLE_DEVICES', '')
 from flashinfer.artifacts import get_artifacts_status
 status = get_artifacts_status()
 total = len(status)
@@ -24,9 +28,9 @@ if echo "$CUBIN_STATUS" | grep -qE '^[0-9]+/[0-9]+$'; then
         echo "All flashinfer cubins already present (${CUBIN_STATUS}), skipping download"
     else
         echo "Cubins incomplete (${CUBIN_STATUS}), downloading..."
-        FLASHINFER_LOGGING_LEVEL=warning python3 -m flashinfer --download-cubin
+        timeout 300 env FLASHINFER_LOGGING_LEVEL=warning python3 -m flashinfer --download-cubin
     fi
 else
     echo "Could not determine cubin status, downloading as fallback..."
-    FLASHINFER_LOGGING_LEVEL=warning python3 -m flashinfer --download-cubin
+    timeout 300 env FLASHINFER_LOGGING_LEVEL=warning python3 -m flashinfer --download-cubin
 fi
