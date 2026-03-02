@@ -316,6 +316,22 @@ class HiMambaRadixCache(MambaRadixCache):
                     self.write_backup_storage(backuped_node)
             finish_count -= 1
 
+    def _flush_write_through(self):
+        """Block until all ongoing write-through ops complete, with dec_lock_ref.
+
+        Used during eviction in write_through mode so that write_back=True
+        (which skips dec_lock_ref) is never mixed with write_through entries.
+        """
+        while len(self.ongoing_write_through) > 0:
+            for _, finish_event, ack_list in self.cache_controller.ack_write_queue:
+                finish_event.synchronize()
+                for ack_id in ack_list:
+                    backuped_node = self.ongoing_write_through.pop(ack_id)
+                    self.dec_lock_ref(backuped_node)
+                    if self.enable_storage:
+                        self.write_backup_storage(backuped_node)
+            self.cache_controller.ack_write_queue.clear()
+
     def loading_check(self):
         finish_count = 0
         for _, finish_event, ack_list in self.cache_controller.ack_load_queue:
@@ -371,11 +387,18 @@ class HiMambaRadixCache(MambaRadixCache):
 
     def _evict_to_host(self, node: TreeNode) -> int:
         """Evict full KV to host. Mamba stays on device. Returns num evicted."""
+        # TODO: in write_through mode, un-backed nodes should be discarded instead
+        # of force-backed-up here (which is effectively write_back behavior).
+        # Align with hiradix_cache._evict_regular for consistency.
         num_full = len(node.value)
 
         if not node.backuped:
-            self.write_backup(node, write_back=True)
-            self.writing_check(write_back=True)
+            if self.cache_controller.write_policy == "write_back":
+                self.write_backup(node, write_back=True)
+                self.writing_check(write_back=True)
+            else:
+                self.write_backup(node)
+                self._flush_write_through()
         assert node.backuped, f"write_backup failed for node {node.id=}"
 
         self.cache_controller.evict_device(node.value)
@@ -599,9 +622,14 @@ class HiMambaRadixCache(MambaRadixCache):
                     x.full_lock_ref == 0
                 ), f"evict leaf node invalid with {x.id=} {x.full_lock_ref=}"
 
+                # TODO: in write_through mode, un-backed nodes should be discarded, not force-backed-up.
                 if not x.backuped:
-                    self.write_backup(x, write_back=True)
-                    self.writing_check(write_back=True)
+                    if self.cache_controller.write_policy == "write_back":
+                        self.write_backup(x, write_back=True)
+                        self.writing_check(write_back=True)
+                    else:
+                        self.write_backup(x)
+                        self._flush_write_through()
 
                 self.cache_controller.evict_device(x.value)
                 self.full_evictable_size_ -= len(x.value)
@@ -705,9 +733,13 @@ class HiMambaRadixCache(MambaRadixCache):
                 node = new_node
 
             if node.evicted:
+                # Unevicted nodes take ownership of the request's KV pages.
+                # Do NOT count them in total_prefix_length, otherwise
+                # cache_finished_req / cache_unfinished_req will free those
+                # pages even though the tree now references them.
                 self._unevict_node(node, value[:prefix_len])
-
-            total_prefix_length += prefix_len
+            else:
+                total_prefix_length += prefix_len
 
             key = key[prefix_len:]
             value = value[prefix_len:]
