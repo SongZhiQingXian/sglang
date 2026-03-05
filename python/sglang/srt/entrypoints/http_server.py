@@ -1392,7 +1392,7 @@ async def continue_generation(obj: ContinueGenerationReqInput, request: Request)
 
 
 ##### OpenAI-compatible API endpoints #####
-
+# test
 
 @app.post("/v1/completions", dependencies=[Depends(validate_json_request)])
 async def openai_v1_completions(request: CompletionRequest, raw_request: Request):

@@ -626,6 +626,19 @@ class OpenAIServingChat(OpenAIServingBase):
         cached_tokens = {}
         hidden_states = {}
         routed_experts = {}
+        
+        # ==================================新增：自定义参数==================================
+        custom_params = {
+            "id": request.id,
+            "conversation_id": request.conversation_id,
+            "bot_id": request.bot_id,
+            "role": request.role,
+            "type": request.type,
+            "content_type": request.content_type,
+            "chat_id": request.chat_id,
+        }
+        
+        # ===================================================================================
 
         try:
             async for content in self.tokenizer_manager.generate_request(
@@ -688,10 +701,11 @@ class OpenAIServingChat(OpenAIServingBase):
                         logprobs=None,
                     )
                     chunk = ChatCompletionStreamResponse(
-                        id=content["meta_info"]["id"],
+                        # id=content["meta_info"]["id"],
                         created=int(time.time()),
                         choices=[choice_data],
                         model=request.model,
+                        **custom_params,
                     )
                     yield f"data: {chunk.model_dump_json()}\n\n"
 
@@ -711,10 +725,11 @@ class OpenAIServingChat(OpenAIServingBase):
                             finish_reason=None,
                         )
                         chunk = ChatCompletionStreamResponse(
-                            id=content["meta_info"]["id"],
+                            # id=content["meta_info"]["id"],
                             created=int(time.time()),
                             choices=[choice_data],
                             model=request.model,
+                            **custom_params,
                         )
 
                         # Add usage stats if continuous_usage_stats is enabled
@@ -766,10 +781,11 @@ class OpenAIServingChat(OpenAIServingBase):
                             logprobs=choice_logprobs,
                         )
                         chunk = ChatCompletionStreamResponse(
-                            id=content["meta_info"]["id"],
+                            # id=content["meta_info"]["id"],
                             created=int(time.time()),
                             choices=[choice_data],
                             model=request.model,
+                            **custom_params,
                         )
 
                         # Add usage stats if continuous_usage_stats is enabled
@@ -793,27 +809,27 @@ class OpenAIServingChat(OpenAIServingBase):
                 if has_tool_calls.get(idx, False) and finish_reason_type == "stop":
                     final_finish_reason = "tool_calls"
 
-                finish_reason_chunk = ChatCompletionStreamResponse(
-                    id=content["meta_info"][
-                        "id"
-                    ],  # NOTE: openai uses the same chatcmpl-id for all indices
-                    created=int(time.time()),
-                    choices=[
-                        ChatCompletionResponseStreamChoice(
-                            index=idx,
-                            delta=DeltaMessage(),
-                            finish_reason=final_finish_reason,
-                            matched_stop=(
-                                finish_reason_data["matched"]
-                                if "matched" in finish_reason_data
-                                else None
-                            ),
-                        )
-                    ],
-                    model=request.model,
-                    usage=None,
-                )
-                yield f"data: {finish_reason_chunk.model_dump_json()}\n\n"
+                # finish_reason_chunk = ChatCompletionStreamResponse(
+                #     id=content["meta_info"][
+                #         "id"
+                #     ],  # NOTE: openai uses the same chatcmpl-id for all indices
+                #     created=int(time.time()),
+                #     choices=[
+                #         ChatCompletionResponseStreamChoice(
+                #             index=idx,
+                #             delta=DeltaMessage(),
+                #             finish_reason=final_finish_reason,
+                #             matched_stop=(
+                #                 finish_reason_data["matched"]
+                #                 if "matched" in finish_reason_data
+                #                 else None
+                #             ),
+                #         )
+                #     ],
+                #     model=request.model,
+                #     usage=None,
+                # )
+                # yield f"data: {finish_reason_chunk.model_dump_json()}\n\n"
 
             # Send hidden states if requested
             if request.return_hidden_states and hidden_states:
@@ -847,11 +863,12 @@ class OpenAIServingChat(OpenAIServingBase):
                 )
                 if first_routed_experts is not None:
                     routed_experts_chunk = ChatCompletionStreamResponse(
-                        id=content["meta_info"]["id"],
+                        # id=content["meta_info"]["id"],
                         created=int(time.time()),
                         choices=[],  # sglext is at response level
                         model=request.model,
                         sglext=SglExt(routed_experts=first_routed_experts),
+                        **custom_params,
                     )
                     yield f"data: {routed_experts_chunk.model_dump_json()}\n\n"
 

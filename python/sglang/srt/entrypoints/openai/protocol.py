@@ -35,6 +35,7 @@ from pydantic import (
     field_validator,
     model_serializer,
     model_validator,
+    ConfigDict,
 )
 from typing_extensions import Literal
 
@@ -614,6 +615,17 @@ class ChatCompletionRequest(BaseModel):
     separate_reasoning: bool = True
     stream_reasoning: bool = True
     chat_template_kwargs: Optional[Dict] = None
+    
+    #======================================================================================================================
+    # 额外的参数为SKY专属定制
+    id: str
+    conversation_id: str
+    bot_id: str
+    role: Optional[str] = "assistant"
+    type: Optional[str] = "answer"
+    content_type: Optional[str] = "text"
+    chat_id: str
+    #======================================================================================================================
 
     # SGLang multimodal tiling controls (extensions)
     max_dynamic_patch: Optional[int] = None
@@ -896,6 +908,9 @@ class ChatCompletionStreamResponse(BaseModel):
     choices: List[ChatCompletionResponseStreamChoice]
     usage: Optional[UsageInfo] = None
     sglext: Optional[SglExt] = None
+    
+    # Pydantic v2 配置方式（替换原来的 class Config）
+    model_config = ConfigDict(extra="allow")  # 允许添加额外字段
 
     @model_serializer(mode="wrap")
     def _serialize(self, handler):
